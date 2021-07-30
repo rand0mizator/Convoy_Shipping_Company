@@ -1,7 +1,41 @@
 import pandas as pd
 import re
+import sqlite3
 
 SHEET_NAME = 'Vehicles'
+
+
+def get_name(file_name):
+    """
+    takes file name with extension and returns meaningfull part
+    example: convoy.xlsx -> convoy
+    """
+    if '[CHECKED]' in file_name:
+        return file_name.split('[CHECKED]'[0])
+    else:
+        return file_name.split('.')[0]
+
+
+def create_table(file_name: str):
+    db_name = get_name(file_name) + '.s3db'
+    conn = sqlite3.connect(db_name)
+    cur = conn.cursor()
+    cur.execute("""CREATE TABLE IF NOT EXISTS convoy (
+                vehicle_id INTEGER PRIMARY KEY)
+                """)
+    conn.commit()
+    conn.close()
+
+
+def add_columns_to_db(file_name: str, column_names: list):
+    db_name = get_name(file_name) + '.s3db'
+    conn = sqlite3.connect(db_name)
+    cur = conn.cursor()
+    for column_name in column_names:
+        cur.execute("""ALTER TABLE convoy 
+                       ADD COLUMN ? INTEGER""", column_name)
+    conn.commit()
+    conn.close()
 
 
 def editor(file_name):
