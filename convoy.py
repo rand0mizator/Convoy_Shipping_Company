@@ -11,6 +11,7 @@ xlsx_sequence = ['to_csv', 'to_checked_csv', 'to_s3db', 'to_json', 'to_xml']
 csv_sequence = ['to_checked_csv', 'to_s3db', 'to_json', 'to_xml']
 checked_csv_sequence = ['to_s3db', 'to_json', 'to_xml']
 s3db_sequence = ['to_json', 'to_xml']
+column_names = ['vehicle_id', 'engine_capacity', 'fuel_consumption', 'maximum_load']
 
 
 def convert_to_csv(f_name, df):
@@ -47,10 +48,14 @@ def convert_to_s3db(f_name, df):
                 vehicle_id INTEGER PRIMARY KEY,
                 engine_capacity INTEGER NOT NULL,
                 fuel_consumption INTEGER NOT NULL,
-                maximum_load INTEGER NOT NULL)
+                maximum_load INTEGER NOT NULL,
+                score INTEGER NOT NULL)
                 """)
     con.commit()
     rows_count = df.shape[0]
+    # result = [f(row[0], ..., row[n]) for row in df[['col1', ...,'coln']].to_numpy()]
+    scores = [scoring(row) for row in df[column_names].to_numpy()]
+    df['score'] = scores
     df.to_sql('convoy', con=con, if_exists='append', index=False)
     print(f"{rows_count} {'records were' if rows_count > 1 else 'record was'} inserted to {db_name}")
     con.commit()
@@ -58,15 +63,19 @@ def convert_to_s3db(f_name, df):
 
 
 def convert_to_json(f_name, df):
+    # All entries with a score of greater than 3
+    # should be exported to the JSON file
     if '[CHECKED]' in f_name:
         name = f_name.split('[CHECKED]')[0]
     else:
         name = f_name.split('.')[0]
+    df = df.loc[df['score'] >= 3]
+    df = df.drop('score', axis=1)
     rows_count = df.shape[0]
     json_string = df.to_json(orient='records', indent=4)  # dataframe -> json string
     with open(name + '.json', 'w') as f:
         f.write('{"convoy": ' + json_string + '}')
-    print(f"{rows_count} {'vehicles were' if rows_count > 1 else 'vehicle was'} saved to {name}.json")
+    print(f"{rows_count} {'vehicles were' if rows_count > 1 or rows_count == 0 else 'vehicle was'} saved to {name}.json")
 
 
 def convert_to_xml(f_name, df):
@@ -75,9 +84,15 @@ def convert_to_xml(f_name, df):
         name = f_name.split('[CHECKED]')[0]
     else:
         name = f_name.split('.')[0]
+    df = df.loc[df['score'] < 3]
+    df = df.drop('score', axis=1)
     rows_count = df.shape[0]
-    df.to_xml(f"{name}.xml", index=False, root_name='convoy', row_name='vehicle', xml_declaration=False)
-    print(f"{rows_count} {'vehicles were' if rows_count > 1 else 'vehicle was'} saved to {name}.xml")
+    if rows_count > 0:
+        df.to_xml(f"{name}.xml", index=False, root_name='convoy', row_name='vehicle', xml_declaration=False)
+    else:
+        with open(f"{name}.xml", 'w') as xml:
+            xml.write('<convoy>\n</convoy>')
+    print(f"{rows_count} {'vehicles were' if rows_count > 1 or rows_count == 0 else 'vehicle was'} saved to {name}.xml")
 
 
 def converting_conveyor(sequence, f_name, df):
@@ -113,6 +128,43 @@ def main(f_name: str):
         print(f"Something went wrong. {f_name}")
 
 
+# column_names = ['vehicle_id', 'engine_capacity', 'fuel_consumption', 'maximum_load']
+def scoring(row):
+    route_length = 450
+    engine_capacity = int(row[1])
+    fuel_consumption = int(row[2])
+    maximum_load = int(row[3])
+    pit_stops = route_length // (engine_capacity / fuel_consumption * 100)
+    fuel_burned = route_length / 100 * fuel_consumption
+    score = 0
+
+    # Number of pitstops. If there are two or more gas stops on the way, the object has 0 points.
+    # One stop at the filling station means 1 point.
+    # No stops — 2 scoring points.
+    if pit_stops >= 2:
+        score += 0
+    elif pit_stops == 1:
+        score += 1
+    elif pit_stops < 1:
+        score += 2
+
+    # Fuel consumed over the entire trip.
+    # If a truck burned 230 liters or less, 2 points are given.
+    # If more — 1 point.
+    if fuel_burned <= 230:
+        score += 2
+    else:
+        score += 1
+
+    # Truck capacity.
+    # If the capacity is 20 tones or more, it gets 2 points.
+    # If less — 0 points.
+    if maximum_load >= 20:
+        score += 2
+
+    return score
+
+
 print("Input file name")
-file_name = input()
+file_name = input() #'d_one_xlsx.xlsx'
 main(file_name)
