@@ -24,9 +24,12 @@ def convert_to_csv(f_name, df):
 def convert_to_checked_csv(f_name, df):
     name = f_name.split('.')[0]
     corrected_cells_count = 0
+    # iteratig through cells in df
     for index in df.index:
         for column in df.columns:
+            # retrieving cell content
             line1 = df.loc[index, column]
+            # removing all symbols except digits
             line2 = re.sub(r'\D', '', df.loc[index, column])  # \D - filters all symbols except digits
             if line1 != line2:
                 df.loc[index, column] = re.sub(r'\D', '', df.loc[index, column])
@@ -53,8 +56,9 @@ def convert_to_s3db(f_name, df):
                 """)
     con.commit()
     rows_count = df.shape[0]
-    # result = [f(row[0], ..., row[n]) for row in df[['col1', ...,'coln']].to_numpy()]
+    # making data for 'score' column
     scores = [scoring(row) for row in df[column_names].to_numpy()]
+    # add 'score' column to data frame
     df['score'] = scores
     df.to_sql('convoy', con=con, if_exists='append', index=False)
     print(f"{rows_count} {'records were' if rows_count > 1 else 'record was'} inserted to {db_name}")
@@ -69,7 +73,9 @@ def convert_to_json(f_name, df):
         name = f_name.split('[CHECKED]')[0]
     else:
         name = f_name.split('.')[0]
-    df = df.loc[df['score'] >= 3]
+    # select rows where 'score' > 3
+    df = df.loc[df['score'] > 3]
+    # dropping 'score' column
     df = df.drop('score', axis=1)
     rows_count = df.shape[0]
     json_string = df.to_json(orient='records', indent=4)  # dataframe -> json string
@@ -84,12 +90,17 @@ def convert_to_xml(f_name, df):
         name = f_name.split('[CHECKED]')[0]
     else:
         name = f_name.split('.')[0]
-    df = df.loc[df['score'] < 3]
+    # select rows where 'score' <= 3
+    df = df.loc[df['score'] <= 3]
+    # dropping 'score' column
     df = df.drop('score', axis=1)
     rows_count = df.shape[0]
+    # if df is empty pandas dont create full root tag in xml only closing tag </convoy>
+    # for tests full tag required, so using this dendrofecal implementation
     if rows_count > 0:
         df.to_xml(f"{name}.xml", index=False, root_name='convoy', row_name='vehicle', xml_declaration=False)
     else:
+        # if df is empty, directly write to xml file root tag
         with open(f"{name}.xml", 'w') as xml:
             xml.write('<convoy>\n</convoy>')
     print(f"{rows_count} {'vehicles were' if rows_count > 1 or rows_count == 0 else 'vehicle was'} saved to {name}.xml")
@@ -128,7 +139,6 @@ def main(f_name: str):
         print(f"Something went wrong. {f_name}")
 
 
-# column_names = ['vehicle_id', 'engine_capacity', 'fuel_consumption', 'maximum_load']
 def scoring(row):
     route_length = 450
     engine_capacity = int(row[1])
@@ -166,5 +176,5 @@ def scoring(row):
 
 
 print("Input file name")
-file_name = input() #'d_one_xlsx.xlsx'
+file_name = input()
 main(file_name)
